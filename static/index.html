@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Chronicle — Passive Time Intelligence Engine. See how you really spend your time.">
+    <title>Chronicle — Time Intelligence</title>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <!-- D3.js -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- GSAP + Plugins -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- ─── Loading Screen ──────────────────────────────────────────── -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">
+                <div class="loading-ring"></div>
+                <span class="loading-icon">◆</span>
+            </div>
+            <h1 class="loading-title">Chronicle</h1>
+            <p class="loading-subtitle">Analyzing your day...</p>
+        </div>
+    </div>
+
+    <!-- ─── Main App ────────────────────────────────────────────────── -->
+    <div id="app" class="app hidden">
+        <!-- ─── Header ──────────────────────────────────────────────── -->
+        <header id="app-header" class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">◆</span>
+                    <span class="logo-text">Chronicle</span>
+                </div>
+            </div>
+            <div class="header-center">
+                <button id="btn-prev-date" class="nav-btn" aria-label="Previous day">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 15L7 10L12 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <h2 id="current-date" class="current-date">Today</h2>
+                <button id="btn-next-date" class="nav-btn" aria-label="Next day">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M8 5L13 10L8 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+            <div class="header-right">
+                <div id="live-indicator" class="live-indicator">
+                    <span class="live-dot"></span>
+                    <span class="live-text">Tracking</span>
+                </div>
+                <span id="server-time" class="server-time"></span>
+            </div>
+        </header>
+
+        <!-- ─── Focus Score Hero ────────────────────────────────────── -->
+        <section id="hero-section" class="hero-section">
+            <div class="hero-grid">
+                <!-- Focus Score Ring -->
+                <div id="focus-score-card" class="glass-card focus-score-card">
+                    <div class="focus-ring-container">
+                        <svg id="focus-ring-svg" class="focus-ring-svg" viewBox="0 0 200 200">
+                            <defs>
+                                <linearGradient id="focus-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" id="grad-stop-1" stop-color="#6366f1"/>
+                                    <stop offset="100%" id="grad-stop-2" stop-color="#8b5cf6"/>
+                                </linearGradient>
+                                <filter id="glow">
+                                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                                    <feMerge>
+                                        <feMergeNode in="coloredBlur"/>
+                                        <feMergeNode in="SourceGraphic"/>
+                                    </feMerge>
+                                </filter>
+                            </defs>
+                            <!-- Background ring -->
+                            <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="10"/>
+                            <!-- Progress ring -->
+                            <circle id="focus-ring" cx="100" cy="100" r="85" fill="none"
+                                    stroke="url(#focus-gradient)" stroke-width="10"
+                                    stroke-linecap="round" filter="url(#glow)"
+                                    stroke-dasharray="534" stroke-dashoffset="534"
+                                    transform="rotate(-90 100 100)"/>
+                            <!-- Score text -->
+                            <text x="100" y="90" text-anchor="middle" class="focus-score-number" id="focus-score-text">0</text>
+                            <text x="100" y="115" text-anchor="middle" class="focus-score-label">Focus Score</text>
+                        </svg>
+                    </div>
+                    <div class="focus-meta">
+                        <span id="focus-descriptor" class="focus-descriptor">—</span>
+                    </div>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="stats-grid">
+                    <div class="glass-card stat-card" id="stat-tracked">
+                        <div class="stat-icon">⏱</div>
+                        <div class="stat-value" id="stat-tracked-value">0h 0m</div>
+                        <div class="stat-label">Tracked</div>
+                    </div>
+                    <div class="glass-card stat-card" id="stat-productive">
+                        <div class="stat-icon">🚀</div>
+                        <div class="stat-value" id="stat-productive-value">0%</div>
+                        <div class="stat-label">Productive</div>
+                    </div>
+                    <div class="glass-card stat-card" id="stat-focus-streak">
+                        <div class="stat-icon">🔥</div>
+                        <div class="stat-value" id="stat-focus-streak-value">0m</div>
+                        <div class="stat-label">Longest Focus</div>
+                    </div>
+                    <div class="glass-card stat-card" id="stat-switches">
+                        <div class="stat-icon">🔀</div>
+                        <div class="stat-value" id="stat-switches-value">0</div>
+                        <div class="stat-label">Context Switches</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── Timeline ────────────────────────────────────────────── -->
+        <section id="timeline-section" class="section">
+            <div class="section-header">
+                <h3 class="section-title">
+                    <span class="section-icon">◇</span>
+                    Daily Timeline
+                </h3>
+                <span id="timeline-event-count" class="section-meta"></span>
+            </div>
+            <div id="timeline-container" class="glass-card timeline-card">
+                <div id="timeline-chart" class="timeline-chart"></div>
+                <div id="timeline-hours" class="timeline-hours"></div>
+            </div>
+            <div id="timeline-tooltip" class="timeline-tooltip hidden"></div>
+        </section>
+
+        <!-- ─── Entropy Heatmap ─────────────────────────────────────── -->
+        <section id="entropy-section" class="section">
+            <div class="section-header">
+                <h3 class="section-title">
+                    <span class="section-icon">◇</span>
+                    Hourly Focus Entropy
+                </h3>
+                <p class="section-description">Lower entropy = deeper focus · Higher entropy = fragmented attention</p>
+            </div>
+            <div id="entropy-container" class="glass-card entropy-card">
+                <div id="entropy-chart" class="entropy-chart"></div>
+            </div>
+        </section>
+
+        <!-- ─── Categories ──────────────────────────────────────────── -->
+        <section id="categories-section" class="section">
+            <div class="section-header">
+                <h3 class="section-title">
+                    <span class="section-icon">◇</span>
+                    Time Distribution
+                </h3>
+            </div>
+            <div class="categories-grid">
+                <div class="glass-card category-chart-card">
+                    <div id="category-donut" class="category-donut"></div>
+                </div>
+                <div id="category-bars" class="glass-card category-bars-card">
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── Sessions ────────────────────────────────────────────── -->
+        <section id="sessions-section" class="section">
+            <div class="section-header">
+                <h3 class="section-title">
+                    <span class="section-icon">◇</span>
+                    Focus Sessions
+                </h3>
+                <span id="session-count" class="section-meta"></span>
+            </div>
+            <div id="sessions-list" class="sessions-list">
+                <!-- Sessions rendered by JS -->
+            </div>
+        </section>
+
+        <!-- ─── Footer ──────────────────────────────────────────────── -->
+        <footer class="footer">
+            <p>Chronicle · All data stored locally · Zero cloud · Zero tracking</p>
+        </footer>
+    </div>
+
+    <!-- App JavaScript -->
+    <script src="/static/js/animations.js"></script>
+    <script src="/static/js/timeline.js"></script>
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

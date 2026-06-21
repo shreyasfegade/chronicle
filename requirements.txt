@@ -1,5 +1,8 @@
+# Chronicle runtime dependencies.
+# The Win32 integration uses the standard-library ctypes module, so there is
+# deliberately no pywin32 dependency.
+
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-pystray>=0.19.0
-Pillow>=10.0.0
-pywin32>=306
+pystray>=0.19.0      # system-tray icon (optional at runtime)
+Pillow>=10.0.0       # draws the tray icon (optional at runtime)

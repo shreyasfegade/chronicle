@@ -1,0 +1,29 @@
+{
+  "_comment": "Copy to config.json and edit. All keys are optional; omit any you don't need. Environment variables (CHRONICLE_PORT, CHRONICLE_POLL_INTERVAL, ...) override these.",
+
+  "host": "127.0.0.1",
+  "port": 7745,
+  "open_browser": true,
+
+  "poll_interval": 3.0,
+  "idle_threshold": 120.0,
+
+  "session_gap_threshold": 60.0,
+  "session_min_duration": 30.0,
+
+  "log_level": "INFO",
+
+  "custom_rules": {
+    "exe": {
+      "myeditor": "Coding",
+      "ledger": "Writing"
+    },
+    "title": [
+      ["jira|confluence", "DevOps"],
+      ["my company wiki", "Studying"]
+    ],
+    "categories": {
+      "Coding": { "color": "#7c83ff" }
+    }
+  }
+}

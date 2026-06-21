@@ -1,317 +1,164 @@
 /**
- * Chronicle — D3 Charts
- * Entropy bar chart, category donut chart, and category bar breakdown.
+ * Chronicle — supporting D3 charts: the focus gauge, the entropy sparkline,
+ * the category donut, and the ranked category bars. All hand-built; the focus
+ * spectrum (see util.js) ties their colours to the Focus Stream.
  */
-
 const ChronicleCharts = (() => {
+    const TAU = Math.PI * 2;
+    const GAUGE_SWEEP = (270 * Math.PI) / 180; // 270° arc with a gap at the bottom
+    const GAUGE_START = -GAUGE_SWEEP / 2;
 
-    /**
-     * Render the hourly entropy bar chart.
-     * Each bar represents one hour's focus entropy (0 = focused, 1 = fragmented).
-     */
-    function renderEntropyChart(hourlyEntropy) {
-        const container = document.getElementById('entropy-chart');
-        if (!container) return;
+    /** 270° focus gauge. The numeric value is the HTML overlay; this is the arc. */
+    function renderGauge(score) {
+        const container = document.getElementById('focus-gauge');
         container.innerHTML = '';
+        const size = 180;
+        const r = 78;
+        const svg = d3.select(container).append('svg')
+            .attr('viewBox', `0 0 ${size} ${size}`).attr('width', size).attr('height', size);
+        const g = svg.append('g').attr('transform', `translate(${size / 2},${size / 2})`);
 
-        const width = container.clientWidth;
-        const height = container.clientHeight || 140;
-        const margin = { top: 10, right: 10, bottom: 24, left: 10 };
-        const innerW = width - margin.left - margin.right;
-        const innerH = height - margin.top - margin.bottom;
+        const track = d3.arc().innerRadius(r - 9).outerRadius(r)
+            .startAngle(GAUGE_START).endAngle(GAUGE_START + GAUGE_SWEEP).cornerRadius(6);
+        g.append('path').attr('d', track).attr('fill', 'rgba(255,255,255,0.06)');
 
-        const svg = d3.select(container)
-            .append('svg')
-            .attr('width', width)
-            .attr('height', height);
-
-        const g = svg.append('g')
-            .attr('transform', `translate(${margin.left},${margin.top})`);
-
-        // Prepare data for all 24 hours
-        const data = [];
-        for (let h = 0; h < 24; h++) {
-            const key = h.toString();
-            const info = hourlyEntropy[key];
-            data.push({
-                hour: h,
-                entropy: info ? info.entropy : 0,
-                hasData: !!info,
-                totalEvents: info ? info.total_events : 0,
-                dominant: info ? info.dominant_category : null,
-            });
-        }
-
-        const x = d3.scaleBand()
-            .domain(data.map(d => d.hour))
-            .range([0, innerW])
-            .padding(0.3);
-
-        const y = d3.scaleLinear()
-            .domain([0, 1])
-            .range([innerH, 0]);
-
-        // Gradient for entropy bars
-        const defs = svg.append('defs');
-
-        // Low entropy = green (focused), high = red (fragmented)
-        function getBarColor(entropy) {
-            if (entropy <= 0.3) return '#10b981';
-            if (entropy <= 0.5) return '#6366f1';
-            if (entropy <= 0.7) return '#f59e0b';
-            return '#f43f5e';
-        }
-
-        function getBarOpacity(entropy, hasData) {
-            if (!hasData) return 0.05;
-            return 0.7 + entropy * 0.3;
-        }
-
-        // Background guide lines
-        [0.25, 0.5, 0.75].forEach(val => {
+        // Tick marks around the arc.
+        const ticks = 28;
+        for (let i = 0; i <= ticks; i += 1) {
+            const a = GAUGE_START + (i / ticks) * GAUGE_SWEEP - Math.PI / 2;
+            const on = i / ticks <= score;
             g.append('line')
-                .attr('x1', 0)
-                .attr('x2', innerW)
-                .attr('y1', y(val))
-                .attr('y2', y(val))
-                .attr('stroke', 'rgba(255,255,255,0.04)')
-                .attr('stroke-dasharray', '3,3');
-        });
+                .attr('x1', Math.cos(a) * (r + 4)).attr('y1', Math.sin(a) * (r + 4))
+                .attr('x2', Math.cos(a) * (r + 8)).attr('y2', Math.sin(a) * (r + 8))
+                .attr('stroke', on ? CU.focusColor(score) : 'rgba(255,255,255,0.08)')
+                .attr('stroke-width', 1.5).attr('opacity', on ? 0.9 : 1);
+        }
 
-        // Focus zone label
-        g.append('text')
-            .attr('x', innerW - 4)
-            .attr('y', y(0.15))
-            .attr('text-anchor', 'end')
-            .attr('fill', 'rgba(16, 185, 129, 0.3)')
-            .attr('font-size', '9px')
-            .attr('font-family', 'Inter, sans-serif')
-            .text('FOCUSED');
+        const value = d3.arc().innerRadius(r - 9).outerRadius(r)
+            .startAngle(GAUGE_START).cornerRadius(6);
+        const path = g.append('path')
+            .attr('fill', CU.focusColor(score))
+            .style('filter', `drop-shadow(0 0 6px ${CU.hexToRgba(CU.focusColor(score), 0.5)})`)
+            .attr('d', value.endAngle(GAUGE_START + score * GAUGE_SWEEP)());
 
-        g.append('text')
-            .attr('x', innerW - 4)
-            .attr('y', y(0.85))
-            .attr('text-anchor', 'end')
-            .attr('fill', 'rgba(244, 63, 94, 0.3)')
-            .attr('font-size', '9px')
-            .attr('font-family', 'Inter, sans-serif')
-            .text('SCATTERED');
-
-        // Bars
-        g.selectAll('.entropy-bar')
-            .data(data)
-            .enter()
-            .append('rect')
-            .attr('class', 'entropy-bar')
-            .attr('x', d => x(d.hour))
-            .attr('width', x.bandwidth())
-            .attr('y', d => d.hasData ? y(Math.max(d.entropy, 0.03)) : y(0.03))
-            .attr('height', d => d.hasData ? innerH - y(Math.max(d.entropy, 0.03)) : innerH - y(0.03))
-            .attr('rx', 3)
-            .attr('fill', d => d.hasData ? getBarColor(d.entropy) : 'rgba(255,255,255,0.03)')
-            .attr('opacity', d => getBarOpacity(d.entropy, d.hasData));
-
-        // Hour labels
-        g.selectAll('.hour-label')
-            .data(data)
-            .enter()
-            .append('text')
-            .attr('x', d => x(d.hour) + x.bandwidth() / 2)
-            .attr('y', innerH + 16)
-            .attr('text-anchor', 'middle')
-            .attr('fill', d => d.hasData ? 'rgba(240,240,245,0.4)' : 'rgba(240,240,245,0.15)')
-            .attr('font-size', '9px')
-            .attr('font-family', 'Inter, sans-serif')
-            .attr('font-variant-numeric', 'tabular-nums')
-            .text(d => d.hour % 2 === 0 ? d.hour.toString().padStart(2, '0') : '');
-
-        // Trigger animation
-        ChronicleAnimations.animateEntropyBars();
+        // Animate the arc sweeping to its value (final state already set above).
+        if (CU.shouldAnimate()) {
+            path.transition().duration(1100).ease(d3.easeCubicOut)
+                .attrTween('d', () => {
+                    const end = d3.interpolate(GAUGE_START, GAUGE_START + score * GAUGE_SWEEP);
+                    return (t) => value.endAngle(end(t))();
+                });
+        }
     }
 
-    /**
-     * Render the category donut chart.
-     */
-    function renderCategoryDonut(topCategories, categories) {
-        const container = document.getElementById('category-donut');
-        if (!container) return;
+    /** Tiny per-hour entropy sparkline — a miniature echo of the stream's fray. */
+    function renderEntropySpark(hourly) {
+        const container = document.getElementById('entropy-spark');
         container.innerHTML = '';
+        const width = container.clientWidth || 280;
+        const height = 38;
+        const svg = d3.select(container).append('svg')
+            .attr('viewBox', `0 0 ${width} ${height}`).attr('width', '100%').attr('height', height);
 
-        const size = Math.min(container.clientWidth, container.clientHeight) || 200;
-        const radius = size / 2;
-        const innerRadius = radius * 0.6;
+        const x = d3.scaleBand().domain(d3.range(24)).range([0, width]).padding(0.28);
+        for (let h = 0; h < 24; h += 1) {
+            const info = hourly[String(h)];
+            const has = !!info;
+            const e = has ? info.entropy : 0;
+            const barH = has ? Math.max(2, e * height) : 2;
+            svg.append('rect')
+                .attr('x', x(h)).attr('width', x.bandwidth())
+                .attr('y', height - barH).attr('height', barH).attr('rx', 1.5)
+                .attr('fill', has ? CU.entropyColor(e) : 'rgba(255,255,255,0.06)')
+                .attr('opacity', has ? 0.9 : 1)
+                .on('mouseenter', (event) => {
+                    if (!has) return;
+                    CU.tip.show(`<div class="tt-time">${String(h).padStart(2, '0')}:00</div><div class="tt-sub">entropy <span class="tt-metric">${e.toFixed(2)}</span> · ${info.dominant_category}</div>`, event);
+                })
+                .on('mousemove', (event) => CU.tip.move(event))
+                .on('mouseleave', () => CU.tip.hide());
+        }
+    }
 
-        const svg = d3.select(container)
-            .append('svg')
-            .attr('width', size)
-            .attr('height', size)
-            .append('g')
-            .attr('transform', `translate(${radius},${radius})`);
+    /** Category donut with a live centre readout. */
+    function renderDonut(topCategories, categories) {
+        const container = document.getElementById('donut');
+        container.innerHTML = '';
+        const size = 190;
+        const r = size / 2;
+        const svg = d3.select(container).append('svg')
+            .attr('viewBox', `0 0 ${size} ${size}`).attr('width', size).attr('height', size)
+            .append('g').attr('transform', `translate(${r},${r})`);
 
-        if (!topCategories || topCategories.length === 0) {
-            svg.append('text')
-                .attr('text-anchor', 'middle')
-                .attr('dy', '0.35em')
-                .attr('fill', 'rgba(240,240,245,0.2)')
-                .attr('font-size', '13px')
-                .attr('font-family', 'Inter, sans-serif')
-                .text('No data');
+        const data = (topCategories || []).filter((c) => c.category !== 'Idle' && c.percentage >= 1);
+        if (data.length === 0) {
+            svg.append('text').attr('text-anchor', 'middle').attr('dy', '0.35em')
+                .attr('fill', 'var(--fg-faint)').attr('font-size', 12).text('No data');
             return;
         }
 
-        // Filter out tiny categories for cleaner chart
-        const filtered = topCategories.filter(c => c.percentage > 1);
+        const totalActive = data.reduce((s, c) => s + c.seconds, 0);
+        const pie = d3.pie().value((d) => d.seconds).sort(null).padAngle(0.02);
+        const arc = d3.arc().innerRadius(r * 0.62).outerRadius(r - 3).cornerRadius(3);
+        const arcHover = d3.arc().innerRadius(r * 0.62).outerRadius(r).cornerRadius(3);
 
-        const pie = d3.pie()
-            .value(d => d.seconds)
-            .sort(null)
-            .padAngle(0.03);
+        const centerVal = svg.append('text').attr('class', 'donut-total')
+            .attr('text-anchor', 'middle').attr('dy', '-0.05em').text(CU.formatHM(totalActive));
+        const centerLbl = svg.append('text').attr('class', 'donut-label')
+            .attr('text-anchor', 'middle').attr('dy', '1.5em').text('ACTIVE');
 
-        const arc = d3.arc()
-            .innerRadius(innerRadius)
-            .outerRadius(radius - 4)
-            .cornerRadius(4);
-
-        const arcHover = d3.arc()
-            .innerRadius(innerRadius)
-            .outerRadius(radius)
-            .cornerRadius(4);
-
-        const arcs = svg.selectAll('.donut-arc')
-            .data(pie(filtered))
-            .enter()
-            .append('path')
-            .attr('class', 'donut-arc')
+        const arcs = svg.selectAll('path').data(pie(data)).enter().append('path')
             .attr('d', arc)
-            .attr('fill', d => {
-                const catInfo = categories[d.data.category];
-                return catInfo ? catInfo.color : '#6b7280';
+            .attr('fill', (d) => (categories[d.data.category] || {}).color || '#6b7280')
+            .attr('opacity', 0.9).style('cursor', 'pointer')
+            .on('mouseenter', function (event, d) {
+                d3.select(this).transition().duration(150).attr('d', arcHover).attr('opacity', 1);
+                centerVal.text(`${d.data.percentage}%`);
+                centerLbl.text(d.data.category.toUpperCase());
             })
-            .attr('opacity', 0.85)
-            .style('cursor', 'pointer')
-            .style('transition', 'opacity 0.2s');
-
-        // Hover effect
-        arcs.on('mouseenter', function (event, d) {
-            d3.select(this)
-                .transition()
-                .duration(200)
-                .attr('d', arcHover)
-                .attr('opacity', 1);
-
-            // Update center text
-            centerValue.text(d.data.percentage + '%');
-            centerLabel.text(d.data.category);
-        })
-        .on('mouseleave', function () {
-            d3.select(this)
-                .transition()
-                .duration(200)
-                .attr('d', arc)
-                .attr('opacity', 0.85);
-
-            // Reset center text
-            const totalSeconds = topCategories.reduce((s, c) => s + c.seconds, 0);
-            centerValue.text(formatHours(totalSeconds));
-            centerLabel.text('Total');
-        });
-
-        // Entrance animation
-        arcs.attr('opacity', 0)
-            .transition()
-            .duration(800)
-            .delay((d, i) => i * 80)
-            .attr('opacity', 0.85)
-            .attrTween('d', function (d) {
-                const interpolate = d3.interpolate(
-                    { startAngle: d.startAngle, endAngle: d.startAngle },
-                    d
-                );
-                return t => arc(interpolate(t));
+            .on('mouseleave', function () {
+                d3.select(this).transition().duration(150).attr('d', arc).attr('opacity', 0.9);
+                centerVal.text(CU.formatHM(totalActive));
+                centerLbl.text('ACTIVE');
             });
 
-        // Center text
-        const totalSeconds = topCategories.reduce((s, c) => s + c.seconds, 0);
-
-        const centerValue = svg.append('text')
-            .attr('class', 'donut-center-value')
-            .attr('text-anchor', 'middle')
-            .attr('dy', '-0.1em')
-            .text(formatHours(totalSeconds));
-
-        const centerLabel = svg.append('text')
-            .attr('class', 'donut-center-label')
-            .attr('text-anchor', 'middle')
-            .attr('dy', '1.4em')
-            .text('Total');
+        if (CU.shouldAnimate()) {
+            arcs.transition().duration(800).delay((d, i) => i * 60)
+                .attrTween('d', (d) => {
+                    const i = d3.interpolate({ startAngle: d.startAngle, endAngle: d.startAngle }, d);
+                    return (t) => arc(i(t));
+                });
+        }
     }
 
-    /**
-     * Render the category bar breakdown.
-     */
-    function renderCategoryBars(topCategories, categories) {
-        const container = document.getElementById('category-bars');
-        if (!container) return;
+    /** Ranked category bars with productive/distracting tinting. */
+    function renderBars(topCategories, categories) {
+        const container = document.getElementById('bars');
         container.innerHTML = '';
-
-        if (!topCategories || topCategories.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state" style="padding: 30px 10px;">
-                    <div class="empty-state-text">No activity categories yet</div>
-                </div>`;
+        const data = (topCategories || []).filter((c) => c.seconds > 0 && c.category !== 'Idle').slice(0, 8);
+        if (data.length === 0) {
+            container.innerHTML = '<div class="empty">No activity categories yet.</div>';
             return;
         }
-
-        const maxSeconds = Math.max(...topCategories.map(c => c.seconds));
-
-        topCategories.forEach(cat => {
-            const catInfo = categories[cat.category] || { color: '#6b7280', icon: '❓' };
-            const barWidth = maxSeconds > 0 ? (cat.seconds / maxSeconds) * 100 : 0;
-
-            const item = document.createElement('div');
-            item.className = 'category-bar-item';
-            item.innerHTML = `
-                <span class="category-bar-icon">${catInfo.icon}</span>
-                <span class="category-bar-name">${cat.category}</span>
-                <div class="category-bar-track">
-                    <div class="category-bar-fill" data-width="${barWidth}%"
-                         style="background: ${catInfo.color};"></div>
+        const max = d3.max(data, (c) => c.seconds);
+        data.forEach((cat) => {
+            const info = categories[cat.category] || { color: '#6b7280' };
+            const row = document.createElement('div');
+            row.className = 'bar-row';
+            row.innerHTML = `
+                <span class="bar-dot" style="background:${info.color}"></span>
+                <div class="bar-main">
+                    <div class="bar-name"><span>${cat.category}</span><span class="bar-pct">${cat.percentage}%</span></div>
+                    <div class="bar-track"><div class="bar-fill" style="background:${info.color}"></div></div>
                 </div>
-                <span class="category-bar-value">${formatDuration(cat.seconds)}</span>
-            `;
-            container.appendChild(item);
+                <span class="bar-time">${CU.formatDuration(cat.seconds)}</span>`;
+            container.appendChild(row);
+            const fill = row.querySelector('.bar-fill');
+            const pct = `${(cat.seconds / max) * 100}%`;
+            if (CU.shouldAnimate()) requestAnimationFrame(() => { fill.style.width = pct; });
+            else fill.style.width = pct;
         });
-
-        // Trigger animation
-        ChronicleAnimations.animateCategoryBars();
     }
 
-    // ── Utility functions ──────────────────────────────────────────────
-
-    function formatDuration(seconds) {
-        if (seconds < 60) return `${Math.round(seconds)}s`;
-        if (seconds < 3600) {
-            const m = Math.floor(seconds / 60);
-            return `${m}m`;
-        }
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        return m > 0 ? `${h}h ${m}m` : `${h}h`;
-    }
-
-    function formatHours(seconds) {
-        if (seconds < 3600) {
-            const m = Math.floor(seconds / 60);
-            return `${m}m`;
-        }
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        return m > 0 ? `${h}h ${m}m` : `${h}h`;
-    }
-
-    return {
-        renderEntropyChart,
-        renderCategoryDonut,
-        renderCategoryBars,
-    };
+    return { renderGauge, renderEntropySpark, renderDonut, renderBars };
 })();

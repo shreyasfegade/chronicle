@@ -1,354 +1,263 @@
 /**
- * Chronicle — Main Application Controller
- * Orchestrates data fetching, rendering, and auto-refresh.
+ * Chronicle — dashboard controller.
+ * Owns state (the selected date), fetches data, drives every visualization,
+ * and wires up navigation, export, the live clock, and auto-refresh.
  */
-
 const ChronicleApp = (() => {
-    const API_BASE = '';
-    const REFRESH_INTERVAL = 15000; // 15 seconds
+    const REFRESH_MS = 30000;
+    const HEATMAP_DAYS = 84;
 
-    let currentDate = new Date();
-    let timelineData = null;
-    let refreshTimer = null;
-    let isInitialized = false;
+    let selected = new Date();
+    let categories = {};
+    let lastDay = null;
+    let booted = false;
 
-    /**
-     * Initialize the application.
-     */
-    async function init() {
-        ChronicleTimeline.init();
-
-        // Load initial data
-        try {
-            await loadData();
-        } catch (e) {
-            console.warn('Initial data load failed, starting with empty state:', e);
-        }
-
-        // Animate app entrance
-        ChronicleAnimations.animateAppEntrance(() => {
-            ChronicleAnimations.setupScrollAnimations();
-            isInitialized = true;
-        });
-
-        // Setup event listeners
-        setupEventListeners();
-
-        // Start auto-refresh
-        startAutoRefresh();
-
-        // Update time display
-        updateTimeDisplay();
-        setInterval(updateTimeDisplay, 1000);
-    }
-
-    function setupEventListeners() {
-        document.getElementById('btn-prev-date').addEventListener('click', () => navigateDate(-1));
-        document.getElementById('btn-next-date').addEventListener('click', () => navigateDate(1));
-
-        // Handle window resize
-        let resizeTimer;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                if (timelineData) {
-                    ChronicleTimeline.render(timelineData);
-                }
-                // Re-render charts
-                loadData(true);
-            }, 250);
-        });
-    }
-
-    /**
-     * Navigate to a different date.
-     */
-    function navigateDate(delta) {
-        currentDate = new Date(currentDate.getTime() + delta * 86400000);
-
-        // Don't go into the future
-        const today = new Date();
-        today.setHours(23, 59, 59, 999);
-        if (currentDate > today) {
-            currentDate = new Date();
-        }
-
-        updateDateDisplay();
-        loadData(true);
-    }
-
-    /**
-     * Update the date display in the header.
-     */
-    function updateDateDisplay() {
-        const el = document.getElementById('current-date');
-        const today = new Date();
-
-        if (isSameDay(currentDate, today)) {
-            el.textContent = 'Today';
-        } else if (isSameDay(currentDate, new Date(today.getTime() - 86400000))) {
-            el.textContent = 'Yesterday';
-        } else {
-            el.textContent = currentDate.toLocaleDateString('en-US', {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-            });
-        }
-
-        // Show/hide live indicator
-        const liveEl = document.getElementById('live-indicator');
-        if (liveEl) {
-            liveEl.style.display = isSameDay(currentDate, today) ? 'flex' : 'none';
-        }
-    }
-
-    /**
-     * Load all data for the current date.
-     */
-    async function loadData(skipAnimation = false) {
-        const dateStr = formatDate(currentDate);
-
-        try {
-            // Fetch all data in parallel
-            const [todayData, timelineResp, sessionsResp] = await Promise.all([
-                fetchJSON(`/api/metrics/${dateStr}`),
-                fetchJSON(`/api/timeline/${dateStr}`),
-                fetchJSON(`/api/sessions/${dateStr}`),
-            ]);
-
-            // Update date display
-            updateDateDisplay();
-
-            // Render focus score
-            renderFocusScore(todayData.focus_score, todayData.stats);
-
-            // Render stats
-            renderStats(todayData.stats);
-
-            // Render timeline
-            timelineData = timelineResp.timeline;
-            ChronicleTimeline.render(timelineData);
-            document.getElementById('timeline-event-count').textContent =
-                `${timelineResp.total_events} events`;
-
-            // Render entropy chart
-            ChronicleCharts.renderEntropyChart(todayData.hourly_entropy);
-
-            // Render categories
-            const categories = await fetchJSON('/api/categories');
-            if (todayData.stats && todayData.stats.top_categories) {
-                ChronicleCharts.renderCategoryDonut(todayData.stats.top_categories, categories);
-                ChronicleCharts.renderCategoryBars(todayData.stats.top_categories, categories);
-            }
-
-            // Render sessions
-            renderSessions(sessionsResp.sessions);
-            document.getElementById('session-count').textContent =
-                `${sessionsResp.total_sessions} sessions`;
-
-            // Pulse refresh indicator
-            if (isInitialized) {
-                ChronicleAnimations.pulseRefresh();
-            }
-
-        } catch (error) {
-            console.error('Failed to load data:', error);
-        }
-    }
-
-    /**
-     * Render the focus score in the hero ring.
-     */
-    function renderFocusScore(score, stats) {
-        ChronicleAnimations.animateFocusRing(score);
-
-        // Update descriptor
-        const descriptor = document.getElementById('focus-descriptor');
-        if (descriptor) {
-            if (!stats || stats.total_tracked_seconds === 0) {
-                descriptor.textContent = 'Waiting for data...';
-            } else if (score >= 0.8) {
-                descriptor.textContent = '🎯 Deep Focus Mode';
-            } else if (score >= 0.6) {
-                descriptor.textContent = '✨ Solid Focus';
-            } else if (score >= 0.4) {
-                descriptor.textContent = '📊 Moderate Focus';
-            } else if (score >= 0.2) {
-                descriptor.textContent = '🔀 Scattered Attention';
-            } else {
-                descriptor.textContent = '🌪 Highly Fragmented';
-            }
-        }
-    }
-
-    /**
-     * Render the stat cards.
-     */
-    function renderStats(stats) {
-        if (!stats) return;
-
-        const trackedTime = formatDurationLong(stats.total_tracked_seconds || 0);
-        const productivePct = `${stats.productive_pct || 0}%`;
-        const longestFocus = stats.longest_focus_minutes
-            ? `${Math.round(stats.longest_focus_minutes)}m`
-            : '0m';
-        const switches = stats.context_switches || 0;
-
-        ChronicleAnimations.animateStatValue('stat-tracked-value', trackedTime);
-        ChronicleAnimations.animateStatValue('stat-productive-value', productivePct);
-        ChronicleAnimations.animateStatValue('stat-focus-streak-value', longestFocus);
-        ChronicleAnimations.animateStatValue('stat-switches-value', switches);
-    }
-
-    /**
-     * Render session cards.
-     */
-    function renderSessions(sessions) {
-        const container = document.getElementById('sessions-list');
-        if (!container) return;
-        container.innerHTML = '';
-
-        if (!sessions || sessions.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">◇</div>
-                    <div class="empty-state-title">No sessions yet</div>
-                    <div class="empty-state-text">
-                        Sessions will appear here as you work. Chronicle is tracking
-                        your activity and will stitch it into coherent focus sessions.
-                    </div>
-                </div>`;
-            return;
-        }
-
-        // Show sessions in reverse chronological order (most recent first)
-        const sorted = [...sessions].reverse();
-
-        sorted.forEach(session => {
-            const card = document.createElement('div');
-            card.className = 'session-card';
-
-            const startTime = formatTimeStr(session.start_time);
-            const endTime = formatTimeStr(session.end_time);
-
-            card.innerHTML = `
-                <div class="session-accent" style="background: ${session.color || '#6b7280'}"></div>
-                <div class="session-icon" style="background: ${hexToRgba(session.color || '#6b7280', 0.12)}">
-                    ${session.icon || '◇'}
-                </div>
-                <div class="session-info">
-                    <span class="session-category">${session.category}</span>
-                    <span class="session-app">${session.app_name || 'Unknown'}</span>
-                    <span class="session-time">${startTime} → ${endTime}</span>
-                </div>
-                <div class="session-duration">
-                    <div class="session-duration-value">${session.duration_formatted || formatDurationShort(session.duration_seconds)}</div>
-                    <div class="session-duration-label">duration</div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-
-        // Animate cards
-        if (isInitialized) {
-            ChronicleAnimations.animateSessionCards();
-        }
-    }
-
-    /**
-     * Start auto-refresh timer.
-     */
-    function startAutoRefresh() {
-        if (refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = setInterval(() => {
-            const today = new Date();
-            if (isSameDay(currentDate, today)) {
-                loadData(true);
-            }
-        }, REFRESH_INTERVAL);
-    }
-
-    /**
-     * Update the server time display.
-     */
-    function updateTimeDisplay() {
-        const el = document.getElementById('server-time');
-        if (el) {
-            const now = new Date();
-            el.textContent = now.toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false,
-            });
-        }
-    }
-
-    // ── Utility Functions ──────────────────────────────────────────────
-
-    async function fetchJSON(url) {
-        const response = await fetch(API_BASE + url);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-    }
-
-    function formatDate(date) {
+    const isoLocal = (date) => {
         const y = date.getFullYear();
         const m = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
-    }
-
-    function isSameDay(d1, d2) {
-        return d1.getFullYear() === d2.getFullYear()
-            && d1.getMonth() === d2.getMonth()
-            && d1.getDate() === d2.getDate();
-    }
-
-    function formatDurationLong(seconds) {
-        if (seconds < 60) return `${Math.round(seconds)}s`;
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        if (h > 0) return `${h}h ${m}m`;
-        return `${m}m`;
-    }
-
-    function formatDurationShort(seconds) {
-        if (!seconds) return '0s';
-        if (seconds < 60) return `${Math.round(seconds)}s`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        return `${h}h ${m}m`;
-    }
-
-    function formatTimeStr(timestamp) {
-        if (!timestamp) return '';
-        // Extract time from "YYYY-MM-DD HH:MM:SS"
-        const parts = timestamp.split(' ');
-        if (parts.length >= 2) {
-            return parts[1].substring(0, 5); // HH:MM
-        }
-        return timestamp;
-    }
-
-    function hexToRgba(hex, alpha) {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    }
-
-    return {
-        init,
     };
+    const sameDay = (a, b) => isoLocal(a) === isoLocal(b);
+    const isToday = () => sameDay(selected, new Date());
+
+    async function getJSON(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    }
+
+    async function init() {
+        try {
+            categories = await getJSON('/api/categories');
+        } catch (e) {
+            categories = {};
+        }
+        await loadDay();
+        loadHeatmap();
+        finishBoot();
+        wireEvents();
+        tickClock();
+        setInterval(tickClock, 1000);
+        setInterval(() => { if (isToday()) loadDay(); }, REFRESH_MS);
+    }
+
+    function finishBoot() {
+        if (booted) return;
+        booted = true;
+        const boot = document.getElementById('boot');
+        boot.classList.add('out');
+        const app = document.getElementById('app');
+        app.hidden = false;
+        setTimeout(() => { boot.hidden = true; }, 520);
+    }
+
+    // ── Data + rendering ─────────────────────────────────────────────────────
+
+    async function loadDay() {
+        const date = isoLocal(selected);
+        updateDateLabel();
+        try {
+            const data = await getJSON(`/api/day/${date}`);
+            lastDay = data;
+            renderDay(data);
+        } catch (e) {
+            console.error('Failed to load day', e);
+        }
+    }
+
+    async function loadHeatmap() {
+        try {
+            const data = await getJSON(`/api/heatmap?days=${HEATMAP_DAYS}`);
+            const active = data.series.filter((d) => d.total_events > 0).length;
+            document.getElementById('heatmap-meta').textContent =
+                `Daily focus · last ${HEATMAP_DAYS} days · ${active} tracked`;
+            ChronicleHeatmap.render(data.series, {
+                selected: isoLocal(selected),
+                onSelect: (iso) => {
+                    const [y, m, d] = iso.split('-').map(Number);
+                    selected = new Date(y, m - 1, d);
+                    loadDay();
+                    ChronicleHeatmap.setSelected(iso);
+                    updateLivePill();
+                },
+            });
+        } catch (e) {
+            console.error('Failed to load heatmap', e);
+        }
+    }
+
+    function renderDay(data) {
+        const stats = data.stats || {};
+        const hourly = data.hourly_entropy || {};
+
+        // Score gauge + number + verdict.
+        ChronicleCharts.renderGauge(data.focus_score || 0);
+        CU.animateNumber(document.getElementById('score-value'), Math.round((data.focus_score || 0) * 100));
+        const verdict = document.getElementById('score-verdict');
+        const v = focusVerdict(data.focus_score || 0, data.total_events);
+        verdict.textContent = v.label;
+        verdict.style.color = v.color;
+
+        ChronicleCharts.renderEntropySpark(hourly);
+
+        // Headline metrics.
+        const deepHours = Object.values(hourly).filter((h) => h.entropy < 0.34).length;
+        setMetric('m-active', CU.formatHM(stats.active_seconds || 0));
+        setMetric('m-productive', `${Math.round(stats.productive_pct || 0)}%`);
+        setMetric('m-deepwork', String(deepHours));
+        setMetric('m-longest', CU.formatHM((stats.longest_focus_minutes || 0) * 60));
+        setMetric('m-switches', String(stats.context_switches || 0));
+        setMetric('m-idle', CU.formatHM(stats.idle_seconds || 0));
+
+        // Signature stream.
+        ChronicleStream.render(data.timeline || [], { isToday: isToday(), categories });
+
+        // Breakdown.
+        ChronicleCharts.renderDonut(stats.top_categories || [], categories);
+        ChronicleCharts.renderBars(stats.top_categories || [], categories);
+
+        // Sessions.
+        renderSessions(data.sessions || []);
+        updateLivePill();
+    }
+
+    function setMetric(id, text) {
+        document.getElementById(id).textContent = text;
+    }
+
+    function focusVerdict(score, events) {
+        if (!events) return { label: 'No data yet', color: 'var(--fg-faint)' };
+        const color = CU.focusColor(score);
+        const pct = Math.round(score * 100); // keep verdict consistent with the shown number
+        if (pct >= 70) return { label: 'Deep Focus', color };
+        if (pct >= 55) return { label: 'Strong Focus', color };
+        if (pct >= 40) return { label: 'Steady Focus', color };
+        if (pct >= 25) return { label: 'Fragmented', color };
+        return { label: 'Scattered', color };
+    }
+
+    function renderSessions(sessions) {
+        const container = document.getElementById('sessions');
+        const meta = document.getElementById('sessions-meta');
+        container.innerHTML = '';
+        if (!sessions.length) {
+            container.innerHTML = '<div class="empty"><div class="empty-mark">◇</div>No focus sessions yet — they appear as activity is stitched together.</div>';
+            meta.textContent = '';
+            return;
+        }
+        meta.textContent = `${sessions.length} sessions`;
+
+        let longestId = -1;
+        let longest = 0;
+        sessions.forEach((s, i) => {
+            if (s.productive && s.duration_seconds > longest) { longest = s.duration_seconds; longestId = i; }
+        });
+
+        [...sessions].reverse().forEach((s) => {
+            const originalIndex = sessions.indexOf(s);
+            const row = document.createElement('div');
+            row.className = 'session' + (originalIndex === longestId ? ' is-longest' : '');
+            row.innerHTML = `
+                <span class="session-accent" style="background:${s.color}"></span>
+                <span class="session-icon">${s.icon || '•'}</span>
+                <div class="session-body">
+                    <div class="session-cat">${s.category}${originalIndex === longestId ? '<span class="session-tag">longest</span>' : ''}</div>
+                    <div class="session-meta">${CU.clipTime(s.start_time)}–${CU.clipTime(s.end_time)} · ${s.app_name || 'unknown'}</div>
+                </div>
+                <div class="session-dur">
+                    <div class="session-dur-val">${s.duration_formatted}</div>
+                    <div class="session-dur-lbl">focus</div>
+                </div>`;
+            container.appendChild(row);
+        });
+    }
+
+    // ── Navigation ───────────────────────────────────────────────────────────
+
+    function navigate(deltaDays) {
+        const next = new Date(selected);
+        next.setDate(next.getDate() + deltaDays);
+        if (next > new Date()) return;
+        selected = next;
+        loadDay();
+        ChronicleHeatmap.setSelected(isoLocal(selected));
+    }
+
+    function goToday() {
+        selected = new Date();
+        loadDay();
+        ChronicleHeatmap.setSelected(isoLocal(selected));
+    }
+
+    function updateDateLabel() {
+        const label = document.getElementById('current-date');
+        const sub = document.getElementById('current-sub');
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        if (sameDay(selected, today)) label.textContent = 'Today';
+        else if (sameDay(selected, yesterday)) label.textContent = 'Yesterday';
+        else label.textContent = selected.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+        sub.textContent = isoLocal(selected);
+        document.getElementById('btn-next').disabled = sameDay(selected, today);
+        document.getElementById('btn-today').style.visibility = sameDay(selected, today) ? 'hidden' : 'visible';
+    }
+
+    function updateLivePill() {
+        document.getElementById('live-pill').style.display = isToday() ? 'flex' : 'none';
+    }
+
+    function exportDay() {
+        const a = document.createElement('a');
+        a.href = `/api/export/${isoLocal(selected)}?format=csv`;
+        a.download = `chronicle-${isoLocal(selected)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+
+    function tickClock() {
+        document.getElementById('clock').textContent =
+            new Date().toLocaleTimeString('en-GB', { hour12: false });
+    }
+
+    function wireEvents() {
+        document.getElementById('btn-prev').addEventListener('click', () => navigate(-1));
+        document.getElementById('btn-next').addEventListener('click', () => navigate(1));
+        document.getElementById('btn-today').addEventListener('click', goToday);
+        document.getElementById('btn-export').addEventListener('click', exportDay);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT') return;
+            if (e.key === 'ArrowLeft') navigate(-1);
+            else if (e.key === 'ArrowRight') navigate(1);
+            else if (e.key === 't' || e.key === 'T') goToday();
+        });
+
+        const redraw = CU.debounce(() => {
+            ChronicleStream.redraw();
+            if (lastDay) ChronicleCharts.renderEntropySpark(lastDay.hourly_entropy || {});
+        }, 150);
+        window.addEventListener('resize', redraw);
+
+        // Redraw the width-dependent stream once layout settles — covers the
+        // case where the first render happened before the panel had a width.
+        if (window.ResizeObserver) {
+            const streamEl = document.getElementById('stream');
+            let lastW = streamEl.clientWidth;
+            new ResizeObserver(() => {
+                if (Math.abs(streamEl.clientWidth - lastW) > 2) {
+                    lastW = streamEl.clientWidth;
+                    redraw();
+                }
+            }).observe(streamEl);
+        }
+    }
+
+    return { init };
 })();
 
-// ── Boot ───────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-    // Small delay to let fonts load
-    setTimeout(() => {
-        ChronicleApp.init();
-    }, 300);
-});
+document.addEventListener('DOMContentLoaded', () => ChronicleApp.init());

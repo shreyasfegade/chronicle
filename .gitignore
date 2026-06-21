@@ -162,13 +162,14 @@ cython_debug/
 #.idea/
 
 # Chronicle Specific
+# Local database (created on first run) and its WAL sidecars.
 chronicle.db
 chronicle.db-shm
 chronicle.db-wal
+# Rotating application log.
+chronicle.log*
 *.log
-verify_dashboard.ps1
-verify_pipeline.ps1
+# User configuration override (config.example.json is the committed template).
+config.json
 .env
-.ai-docs/
-node_modules/
 

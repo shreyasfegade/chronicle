@@ -174,8 +174,8 @@ config.json
 .env
 
 
-# Local editor/dev launch config
-.claude/launch.json
+# Local Claude Code / editor config (kept out of the published repo)
+.claude/
 
 # Screenshot scratch dir
 .shots/

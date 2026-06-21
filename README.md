@@ -1,176 +1,230 @@
 # Chronicle
 
-**Passive time tracking and productivity intelligence for Windows.** Maps window activity, computes deep focus metrics, and renders timelines — all locally.
+**Passive focus intelligence for Windows.** Chronicle runs quietly in your system
+tray, watches which window has your attention, and turns that raw signal into a
+single, honest number — a **Focus Score** built from Shannon entropy — rendered
+through a hand-built D3 dashboard. Everything stays on your machine.
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)
+![Chronicle dashboard](screenshots/dashboard.png)
+
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 ![D3.js](https://img.shields.io/badge/D3.js-F9A03C?style=flat-square&logo=d3dotjs&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![License: MIT](https://img.shields.io/badge/License-MIT-3dd4bf?style=flat-square)
 
-![Chronicle Dashboard](screenshots/detail.png)
-
----
-
-## The Problem
-
-Most time-tracking tools require manual start/stop interactions, leading to gaps in logging, or upload detailed, personal desktop activity to third-party cloud servers. Furthermore, generic category summaries (e.g., spending 3 hours in "Google Chrome") fail to capture context or measure the actual quality of attention—ignoring whether those 3 hours were spent context-switching between tabs or in deep deep focus.
-
-## The Solution
-
-**Chronicle** runs quietly in the Windows system tray, passively logging foreground window activity and active titles every few seconds. It stores all data locally in an SQLite database. It computes a custom "Focus Entropy" metric that measures attention fragmentation and renders a responsive dashboard featuring interactive timeline visualizations, activity breakdowns, and daily focus scorecards.
+> The screenshots in this README are from generated sample data (`scripts/seed_demo.py`)
+> so the visualizations have something to show. Your own data accrues as you use it.
 
 ---
 
-## Features
+## The problem
 
-- **Passive Window Monitoring** — Captures active window titles, process names, and timestamps every 3 seconds without background CPU load.
-- **Focus Entropy Metric** — Calculates normalized Shannon entropy per hour to quantify attention fragmentation (low entropy = sustained deep focus; high entropy = rapid context-switching).
-- **Session Stitching Engine** — Collates raw window events into continuous focus sessions using configurable idle thresholds and gap tolerances.
-- **Automated Rules Classifier** — Categorizes activities (e.g., Coding, Writing, Entertainment) by checking window titles against user-defined regex rules.
-- **Interactive D3.js Timelines** — Visualizes your day as a fluid chronological strip with hover tooltips and category filter toggles.
-- **System Tray Integration** — Lives in the Windows tray with simple controls to pause/resume tracking, launch the dashboard, or quit.
-- **Zero-Cloud Privacy** — Database, collection, and visualization run entirely on your local machine.
+Most time trackers answer the wrong question. They tell you that you spent three
+hours in "Chrome" — but not whether those three hours were one deep, unbroken
+research session or ninety frantic tab-switches between Slack, email, and YouTube.
+Time-in-app is easy to measure and nearly useless as a measure of attention.
+
+The tools that *do* try to measure focus usually ask you to start and stop timers
+by hand (so the data is full of gaps), or they ship your entire desktop activity
+to someone else's cloud.
+
+## The solution
+
+Chronicle treats your attention as a **signal** and measures its *disorder*.
+
+It samples the foreground window every few seconds and classifies it (Coding,
+Communication, Studying, …). For each hour it builds a distribution over those
+categories and computes the **normalized Shannon entropy**: an hour spent entirely
+in one category has entropy `0` (deep focus); an hour split evenly across many has
+entropy near `1` (fragmented). The **Focus Score** is `1 − entropy`, weighted by
+activity — the share of your day spent in sustained attention rather than
+context-switching.
+
+All collection, storage, and visualization happen locally. Nothing leaves the
+machine; there is no account, no network call, no telemetry.
 
 ---
 
-## Tech Stack
+## The dashboard
 
-- **Backend**: FastAPI + Python 3.11+
-- **Frontend**: Vanilla JS + D3.js v7 + Tailwind CSS (served locally)
-- **Database**: SQLite (WAL mode for concurrent tracker/dashboard reads)
-- **Monitoring**: Native Win32 API bindings (via Python `ctypes`)
-- **Animation**: GSAP (GreenSock Animation Platform)
+The centerpiece is the **Focus Stream** — the whole day drawn as one continuous
+ribbon. Colour is *what* you were doing, height is *how engaged* you were, and the
+turbulence of the ribbon's edges is entropy itself: deep-focus hours flow as calm,
+smooth water, while scattered hours fray into a choppy waveform. The metric isn't
+just printed — it's something you can *see*.
+
+| Activity breakdown & multi-week rhythm | Deep-work log |
+| --- | --- |
+| ![Breakdown and heatmap](screenshots/analytics.png) | ![Sessions](screenshots/sessions.png) |
+
+- **Focus Rhythm** — a multi-week heatmap of daily Focus Score (it doubles as a
+  date picker: click any day to jump to it).
+- **Focus gauge + entropy sparkline** — the day's score with its hour-by-hour
+  entropy beneath it.
+- **Where the time went** — a category donut and ranked breakdown.
+- **Deep-Work Log** — your raw polls stitched back into the handful of focus
+  blocks you'd actually recognize, longest highlighted.
+
+Navigate days with the arrows or `←` / `→`, jump home with `T`, and export any
+day to CSV.
 
 ---
 
-## Quick Start
+## Quick start
 
-### Prerequisites
+**Requirements:** Windows 10/11 and Python 3.10+. No administrator rights needed.
 
-- Windows 10 or 11
-- Python 3.10+
-- Administrator privileges (required for global keyboard listeners if enabled, and reliable foreground window hook binding)
+```bash
+git clone https://github.com/shreyasfegade/chronicle.git
+cd chronicle
+pip install -r requirements.txt
 
-### Installation & Run
+# (optional) generate a few weeks of sample data to explore the dashboard
+python scripts/seed_demo.py --days 84
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/shreyasfegade/chronicle.git
-   cd chronicle
-   ```
+python app.py
+```
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+`python app.py` initializes the database, starts the background tracker, drops an
+icon in the system tray, and opens the dashboard at
+[http://localhost:7745](http://localhost:7745). It is equivalent to
+`python -m chronicle`. Right-click the tray icon to pause/resume tracking or quit.
 
-3. **Start the application:**
-   ```bash
-   python app.py
-   ```
+Leave it running. The longer it runs, the more your real focus patterns emerge.
 
-This will initialize the database, start the passive background tracker thread, launch the tray utility, and automatically open the web dashboard in your default browser at [http://localhost:7745](http://localhost:7745).
+---
+
+## Configuration
+
+Everything tunable lives in [`chronicle/config.py`](chronicle/config.py) with sane
+defaults. To override, copy `config.example.json` to `config.json` and edit it, or
+set `CHRONICLE_*` environment variables (`CHRONICLE_PORT=8000`, …).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `poll_interval` | `3.0` | Seconds between foreground-window samples |
+| `idle_threshold` | `120` | Seconds without input before time counts as `Idle` |
+| `session_gap_threshold` | `60` | Max gap (s) still merged into one focus session |
+| `session_min_duration` | `30` | Sessions shorter than this (s) are dropped as noise |
+| `port` / `host` | `7745` / `127.0.0.1` | Dashboard server binding |
+| `custom_rules` | — | Add your own app/title → category rules |
+
+Custom classification needs no code. For example, to file your editor under
+*Coding* and any Jira tab under *DevOps*:
+
+```json
+{
+  "custom_rules": {
+    "exe":   { "myeditor": "Coding" },
+    "title": [["jira|confluence", "DevOps"]]
+  }
+}
+```
 
 ---
 
 ## Architecture
 
-```text
+```
+┌──────────────┐   raw events   ┌──────────────┐   derived   ┌──────────────┐
+│   TRACKER     │ ─────────────► │   STORAGE     │ ──────────► │  DASHBOARD    │
+│               │                │               │             │               │
+│ Win32 ctypes  │  every ~3s     │ SQLite (WAL)  │  on demand  │ FastAPI + D3  │
+│ foreground +  │  one row /     │ single events │  entropy,   │ Focus Stream  │
+│ idle polling  │  poll          │ table         │  sessions   │ + heatmap     │
+└──────────────┘                └──────────────┘             └──────────────┘
+```
+
+The raw `events` table is the single source of truth. Sessions and Focus Scores
+are derived from it at request time (a day is only a few thousand rows), so there
+are no caches to go stale; the multi-week heatmap pushes its aggregation down into
+SQL to stay fast over months of data. SQLite runs in **WAL mode** so the tracker
+(writer) and the dashboard (readers) never block each other.
+
+```
 chronicle/
-├── app.py             # Main entry point (starts tracker, server, and tray)
-├── tracker.py         # Win32 polling loop and foreground window detector
-├── database.py        # SQLite schema initialization and write pipeline
-├── sessions.py        # Focus session aggregation and stitching algorithms
-├── metrics.py         # Focus entropy calculations and daily score aggregations
-├── classifier.py      # Rule-based regex activity categorizer
-├── server.py          # FastAPI server serving the local dashboard API
-├── tray.py            # System tray icon setup and controls (via pystray)
-├── static/            # Dashboard webassets (HTML, CSS, D3.js visualization scripts)
-├── LICENSE            # MIT License
-└── README.md          # Project documentation
+├── chronicle/                 # application package
+│   ├── app.py                 # bootstrap — wires tracker + server + tray
+│   ├── config.py              # file/env-backed configuration
+│   ├── platform.py            # isolated Win32 ctypes (foreground window + idle)
+│   ├── tracker.py             # background polling loop
+│   ├── database.py            # SQLite (WAL) storage layer
+│   ├── classifier.py          # rule-based categorisation
+│   ├── sessions.py            # raw events → focus sessions
+│   ├── metrics.py             # Focus Score / Shannon entropy
+│   ├── server.py              # FastAPI app + JSON API
+│   ├── tray.py                # system-tray icon and controls
+│   └── logging_setup.py       # console + rotating-file logging
+├── static/                    # dashboard (no build step)
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/{util,stream,heatmap,charts,app}.js
+├── scripts/seed_demo.py       # generate realistic sample data
+├── app.py                     # launcher (python app.py)
+├── config.example.json
+└── requirements.txt
 ```
 
----
+### Tech stack
 
-## Current Status
-
-This project is a **fully functional local utility**.
-
-- **Implemented**: Background window polling, sqlite write pipeline with session stitching, Focus Entropy math, rule-based categorization, system tray controls, and a complete D3.js dashboard view.
-- **In Progress**: Local desktop notifications when focus entropy exceeds high thresholds (indicating severe distraction).
-- **Planned**: Multi-monitor activity detection (tracking window sizing/positioning offsets).
-
----
-
-## Architecture
-
-```
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│    TRACKER      │         │   PROCESSOR     │         │   DASHBOARD     │
-│                 │         │                 │         │                 │
-│ • Win32 ctypes  │────────►│ • Regex Classif.│────────►│ • FastAPI       │
-│ • GetForeground │  raw    │ • Session Stitch│ metrics │ • D3.js         │
-│ • 3s polling    │  events │ • Shannon H(X)  │ + focus │ • Timeline      │
-│ • Process names │         │ • SQLite (WAL)  │ entropy │ • Category Bars │
-└─────────────────┘         └─────────────────┘         └─────────────────┘
-```
-
-### Data Flow
-
-```
-1. Active window polled ───────────────── every 3s (Win32 ctypes)
-   ↓
-2. Title captured ─────────────────────── ~5ms (GetWindowTextW UTF-16)
-   ↓
-3. Category matched ───────────────────── ~2ms (ordered regex rules)
-   ↓
-4. Session stitched ───────────────────── ~15ms (merge if gap <60s, same category)
-   ↓
-5. Focus Entropy computed ─────────────── ~10ms (Shannon H(X) over 1hr window)
-   ↓
-6. Dashboard rendered ─────────────────── ~30ms (D3.js timeline + category bars)
-
-Query response: ~30ms from request to full dashboard
-```
-
-Window titles are classified before process names — so `chrome.exe` showing YouTube gets classified as Entertainment, while `chrome.exe` showing Google Docs gets classified as Writing.
-
-Focus Entropy uses Shannon Entropy to quantify attention quality:
-$$H(X) = -\sum_{i=1}^n P(x_i) \log_2 P(x_i)$$
-Normalized to 0.0–1.0, where 0 = deep focus on one window, 1 = rapid switching across many.
-
+- **Tracking:** native Win32 API via the standard-library `ctypes` — no `pywin32`.
+- **Backend:** FastAPI + Uvicorn, Python 3.10+.
+- **Storage:** SQLite in WAL mode.
+- **Frontend:** vanilla JS and **D3 v7**, hand-built. No charting library, no CSS
+  framework, no build step — every pixel of every chart is drawn from the data.
+- **Tray:** `pystray` + `Pillow` (both optional; Chronicle runs headless without them).
 
 ---
 
 ## Limitations
 
-- **Windows Dependent**: Relies entirely on Win32 user library DLL calls; incompatible with macOS or Linux.
-- **Manual Rules**: Requires initial category classifications to be configured manually via rules; unrecognized titles fall back to a "General" category.
-- **Single Monitor Focus**: Only logs the window currently in the foreground; background window operations (like background videos) are ignored.
-- **Browser Title Dependency**: Browser tab titles must contain identifying terms in the window title string; browsers running in private/incognito mode that hide titles cannot be categorized dynamically.
+Chronicle is honest about what it can and can't see:
+
+- **Windows only.** It binds directly to Win32 DLLs through `ctypes`; there is no
+  macOS or Linux support.
+- **Foreground only.** It tracks the single focused window. A video playing behind
+  your editor is invisible to it, by design.
+- **Titles drive browser classification.** A browser tab is categorized from its
+  title text, so private/incognito windows that hide titles fall back to generic
+  *Browsing*, and unknown apps land in *Other* until you add a rule.
+- **Durations are sampled, not exact.** Each event stands for one poll interval, so
+  times are accurate to within a few seconds, not to the millisecond.
+- **Entropy measures category mixing.** At hour granularity, healthy task-switching
+  (a quick Slack check mid-coding) and genuine distraction can look similar. The
+  Focus Score is a useful lens on your day, not a verdict on it.
 
 ---
 
-## What This Project Taught Me
+## A note on building this
 
-- How Windows native APIs (`ctypes`, `GetForegroundWindow`) enable desktop automation without third-party dependencies.
-- Why concurrent database access needs WAL mode to prevent lock conflicts between background writers and frontend readers.
-- How Shannon Entropy can quantify abstract concepts like "attention quality" into actionable metrics.
-- The architecture of system tray applications with background worker threads and web-based dashboards.
+This project was built with AI assistance; the concept, the metric design, and the
+visual direction are mine, and I reviewed and shaped everything that went in. Three
+things were genuinely fiddly on *this* project specifically:
 
-## Development Note
+- **The Win32 layer is quietly hostile.** `GetForegroundWindow` happily hands back
+  stale handles during desktop transitions, `OpenProcess` is refused outright for
+  elevated or protected processes, and `GetTickCount` wraps every ~49 days. Getting
+  every call to degrade to "skip this poll" instead of crashing a daemon that's
+  meant to run for weeks took more care than the happy path suggests — declaring
+  `argtypes`/`restypes`, choosing the least-privilege access flag that still works,
+  and never letting a bad poll escape the loop.
 
-**Built with AI-assisted development.** I directed the product vision, designed the metrics framework, and made the architecture decisions. AI tools accelerated the implementation.
+- **Making entropy *legible* was the real design problem.** A Focus Score of 0.41
+  means nothing to a stranger. The Focus Stream exists to make the number physical:
+  mapping entropy to the amplitude of an edge-turbulence noise field so that "your
+  attention was fragmented" looks like choppy water. Tuning that — and noticing
+  along the way that normalized entropy pins to `1.0` whenever two categories are
+  evenly split, which is why boundary hours read as scattered — was the part that
+  took the most iteration.
 
-My contributions:
-- The core idea: treating developer attention as a quantifiable resource using information theory.
-- Designing the Focus Entropy algorithm to measure attention quality, not just time spent.
-- Architecture: combining a background tracker thread with a FastAPI web server and system tray daemon.
-- UX direction for the D3.js timeline visualizations and daily focus scorecards.
+- **Synthetic data is harder than it looks.** Generating a believable demo day
+  meant giving activity realistic *dwell* (you don't switch apps every three
+  seconds) and threading a single monotonic time cursor through the day so that
+  generated sessions stay contiguous instead of interleaving into noise.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

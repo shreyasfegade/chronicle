@@ -198,14 +198,47 @@ def _empty_stats() -> dict[str, Any]:
     }
 
 
-def summarize_day(events: list[dict[str, Any]], day: date) -> dict[str, Any]:
-    """Return a compact one-day summary used by the multi-day heatmap."""
+def daily_summaries_from_counts(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Build per-day Focus Score summaries from aggregated hourly counts.
+
+    Args:
+        rows: ``(day, hour, category, count, idle_count)`` rows as returned by
+            :func:`chronicle.database.get_hourly_category_counts`.
+
+    Returns:
+        Mapping of ISO date string to ``{date, focus_score, active_seconds,
+        total_events}``. This is the data behind the multi-week heatmap and is
+        computed without ever loading raw events into memory.
+    """
     poll_interval = get_config().poll_interval
-    active = [e for e in events if not e.get("is_idle")]
-    hourly = compute_hourly_entropy(events)
-    return {
-        "date": day.isoformat(),
-        "focus_score": compute_daily_focus_score(hourly),
-        "active_seconds": len(active) * poll_interval,
-        "total_events": len(events),
-    }
+
+    # day -> hour -> {category: count}; plus per-day totals.
+    per_day: dict[str, dict[int, dict[str, int]]] = {}
+    totals: dict[str, int] = {}
+    active: dict[str, int] = {}
+    for row in rows:
+        day, hour, category = row["day"], row["hour"], row["category"]
+        count, idle = row["count"], row["idle_count"] or 0
+        per_day.setdefault(day, {}).setdefault(hour, {})[category] = count
+        totals[day] = totals.get(day, 0) + count
+        active[day] = active.get(day, 0) + (count - idle)
+
+    summaries: dict[str, dict[str, Any]] = {}
+    for day, hours in per_day.items():
+        weighted_sum = 0.0
+        weight_total = 0
+        for distribution in hours.values():
+            non_idle = {c: n for c, n in distribution.items() if c != "Idle"}
+            hour_events = sum(distribution.values())
+            if hour_events == 0:
+                continue
+            entropy = normalized_entropy(non_idle) if non_idle else 0.0
+            weighted_sum += (1.0 - entropy) * hour_events
+            weight_total += hour_events
+        summaries[day] = {
+            "date": day,
+            "focus_score": round(weighted_sum / weight_total, 4) if weight_total else 0.0,
+            "active_seconds": active.get(day, 0) * poll_interval,
+            "total_events": totals.get(day, 0),
+        }
+    return summaries

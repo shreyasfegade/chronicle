@@ -137,15 +137,27 @@ def get_events_for_date(target_date: date | None = None) -> list[dict[str, Any]]
     return [dict(r) for r in rows]
 
 
-def get_events_in_range(start_date: date, end_date: date) -> list[dict[str, Any]]:
-    """Return events for the inclusive date range ``[start_date, end_date]``."""
+def get_hourly_category_counts(
+    start_date: date, end_date: date
+) -> list[dict[str, Any]]:
+    """Return per-day, per-hour, per-category event counts for a date range.
+
+    Aggregating in SQL keeps the multi-week heatmap cheap: instead of streaming
+    every raw event into Python, the database returns one compact row per
+    (day, hour, category) bucket.
+    """
     start = f"{start_date.isoformat()} 00:00:00"
     end = f"{end_date.isoformat()} 23:59:59"
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT * FROM events
+            """SELECT DATE(timestamp)                       AS day,
+                      CAST(strftime('%H', timestamp) AS INT) AS hour,
+                      category                                AS category,
+                      COUNT(*)                                AS count,
+                      SUM(is_idle)                            AS idle_count
+               FROM events
                WHERE timestamp >= ? AND timestamp <= ?
-               ORDER BY timestamp ASC""",
+               GROUP BY day, hour, category""",
             (start, end),
         ).fetchall()
     return [dict(r) for r in rows]

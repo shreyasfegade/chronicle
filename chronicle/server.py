@@ -35,14 +35,14 @@ from .database import (
     get_available_dates,
     get_daily_summary,
     get_events_for_date,
-    get_events_in_range,
+    get_hourly_category_counts,
     get_recent_events,
 )
 from .metrics import (
     compute_daily_focus_score,
     compute_hourly_entropy,
     compute_productivity_stats,
-    summarize_day,
+    daily_summaries_from_counts,
 )
 from .sessions import format_duration, stitch_sessions
 
@@ -155,20 +155,17 @@ async def api_day(target_date: str) -> Any:
 @app.get("/api/heatmap")
 async def api_heatmap(days: int = 28) -> Any:
     """Return per-day Focus Score / activity for the last ``days`` days."""
-    days = max(1, min(days, 180))
+    days = max(1, min(days, 370))
     today = date.today()
     start = today - timedelta(days=days - 1)
 
-    events = get_events_in_range(start, today)
-    by_day: dict[str, list[dict[str, Any]]] = {}
-    for event in events:
-        day_key = event["timestamp"][:10]
-        by_day.setdefault(day_key, []).append(event)
+    summaries = daily_summaries_from_counts(get_hourly_category_counts(start, today))
 
+    empty = {"focus_score": 0.0, "active_seconds": 0, "total_events": 0}
     series = []
     for offset in range(days):
-        day = start + timedelta(days=offset)
-        series.append(summarize_day(by_day.get(day.isoformat(), []), day))
+        day = (start + timedelta(days=offset)).isoformat()
+        series.append({"date": day, **{**empty, **summaries.get(day, {})}})
 
     return {"days": days, "start": start.isoformat(), "end": today.isoformat(), "series": series}
 

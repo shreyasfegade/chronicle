@@ -129,6 +129,8 @@ def load_config(config_path: Path | None = None) -> Config:
     defaults = {f.name: getattr(Config, f.name, None) for f in fields(Config)}
 
     for key, value in file_values.items():
+        if key.startswith("_"):
+            continue  # underscore keys are comments (e.g. "_comment")
         if key not in valid:
             logger.warning("Unknown config key %r ignored.", key)
             continue

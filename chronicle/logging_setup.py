@@ -8,6 +8,7 @@ uvicorn access log is quietened to keep the console readable.
 from __future__ import annotations
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 
 from .config import PROJECT_ROOT, get_config
@@ -16,8 +17,24 @@ _CONSOLE_FORMAT = "%(asctime)s | %(name)-20s | %(levelname)-7s | %(message)s"
 _FILE_FORMAT = "%(asctime)s | %(name)-22s | %(levelname)-7s | %(message)s"
 
 
+def _make_console_utf8() -> None:
+    """Switch the console to UTF-8 so output never crashes on Windows codepages.
+
+    The default Windows console uses cp1252, which can't encode the banner's box
+    characters or a stray em dash in a log line — and ``print`` would raise
+    ``UnicodeEncodeError`` rather than just mangling them. ``errors="replace"``
+    guarantees output is always safe.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
+
 def configure_logging() -> None:
     """Install console and rotating-file handlers on the root logger."""
+    _make_console_utf8()
     level = getattr(logging, get_config().log_level.upper(), logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
